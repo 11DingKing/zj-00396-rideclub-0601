@@ -1,0 +1,273 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  RIDER
+  LEADER
+  ADMIN
+}
+
+enum RouteLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum ActivityStatus {
+  DRAFT
+  PUBLISHED
+  REGISTRATION_CLOSED
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum CheckpointType {
+  START
+  SUPPLY
+  END
+}
+
+enum CheckInStatus {
+  PENDING
+  CHECKED_IN
+  MISSED
+  OPT_OUT
+}
+
+enum BikeType {
+  ROAD
+  MOUNTAIN
+  GRAVEL
+  HYBRID
+  FOLDING
+  E_BIKE
+}
+
+enum ViolationType {
+  NO_LIGHTS_NIGHT_RIDE
+  NO_HELMET
+  EARLY_QUIT_WITHOUT_REASON
+  MISSED_CHECKPOINT
+}
+
+enum EventType {
+  WEATHER_WARNING
+  ROAD_CONSTRUCTION
+  ACCIDENT
+  ROUTE_CHANGE
+  PAUSE
+  RESUME
+  EARLY_FINISH
+}
+
+model User {
+  id            String    @id @default(cuid())
+  phone         String    @unique
+  password      String
+  nickname      String
+  avatar        String?
+  role          UserRole  @default(RIDER)
+  realName      String?
+  idCard        String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  totalMileage  Float     @default(0)
+  totalRides    Int       @default(0)
+  safetyScore   Int       @default(100)
+  level         Int       @default(1)
+
+  bikeType      BikeType?
+  bikeBrand     String?
+  insuranceExpiry DateTime?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  recentRideCapacity    String?
+
+  leadingActivities Activity[] @relation("leader")
+  registrations     Registration[]
+  checkIns          CheckIn[]
+  violations        Violation[]
+  pointsLogs        PointsLog[]
+
+  @@index([role])
+  @@index([phone])
+}
+
+model Activity {
+  id              String          @id @default(cuid())
+  title           String
+  description     String?
+  routeLevel      RouteLevel
+  meetingPoint    String
+  meetingLat      Float?
+  meetingLng      Float?
+  startAt         DateTime
+  estimatedMileage  Float
+  estimatedElevation Int
+  maxParticipants Int
+  requiredEquipment Json
+  isNightRide     Boolean       @default(false)
+  status          ActivityStatus @default(DRAFT)
+
+  leaderId        String
+  leader          User          @relation("leader", fields: [leaderId], references: [id])
+
+  checkpoints     Checkpoint[]
+  registrations   Registration[]
+  events          ActivityEvent[]
+  violations      Violation[]
+  pointsLogs      PointsLog[]
+
+  actualMileage   Float?
+  actualStartTime DateTime?
+  actualEndTime   DateTime?
+  completedCount  Int           @default(0)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status])
+  @@index([startAt])
+  @@index([routeLevel])
+  @@index([leaderId])
+}
+
+model Checkpoint {
+  id            String         @id @default(cuid())
+  activityId    String
+  activity      Activity       @relation(fields: [activityId], references: [id])
+  name          String
+  type          CheckpointType
+  latitude      Float?
+  longitude     Float?
+  orderIndex    Int
+  description   String?
+  expectedTime  DateTime?
+
+  checkIns      CheckIn[]
+  createdAt     DateTime       @default(now())
+
+  @@index([activityId])
+  @@index([type])
+}
+
+model Registration {
+  id            String          @id @default(cuid())
+  activityId    String
+  activity      Activity        @relation(fields: [activityId], references: [id])
+  riderId       String
+  rider         User            @relation(fields: [riderId], references: [id])
+
+  bikeType      BikeType
+  hasInsurance  Boolean
+  insuranceExpiry DateTime?
+  emergencyContactName  String
+  emergencyContactPhone String
+  recentRideCapacity    String
+  hasHelmet     Boolean       @default(true)
+  hasLights     Boolean       @default(true)
+
+  registeredAt  DateTime      @default(now())
+  cancelledAt   DateTime?
+  isPresent     Boolean       @default(false)
+  completed     Boolean       @default(false)
+  optOutReason  String?
+
+  checkIns      CheckIn[]
+  violations    Violation[]
+
+  @@unique([activityId, riderId])
+  @@index([activityId])
+  @@index([riderId])
+}
+
+model CheckIn {
+  id              String          @id @default(cuid())
+  registrationId  String
+  registration    Registration    @relation(fields: [registrationId], references: [id])
+  checkpointId    String
+  checkpoint      Checkpoint      @relation(fields: [checkpointId], references: [id])
+  riderId         String
+  rider           User            @relation(fields: [riderId], references: [id])
+  activityId      String
+
+  status          CheckInStatus   @default(PENDING)
+  checkedInAt     DateTime?
+  latitude        Float?
+  longitude       Float?
+  missReason      String?
+  optOutReason    String?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([registrationId, checkpointId])
+  @@index([activityId])
+  @@index([riderId])
+  @@index([status])
+}
+
+model Violation {
+  id            String          @id @default(cuid())
+  riderId       String
+  rider         User            @relation(fields: [riderId], references: [id])
+  activityId    String
+  activity      Activity        @relation(fields: [activityId], references: [id])
+  registrationId String?
+  registration  Registration?   @relation(fields: [registrationId], references: [id])
+
+  type          ViolationType
+  description   String?
+  pointsDeducted Int            @default(0)
+  recordedAt    DateTime        @default(now())
+  recordedBy    String?
+
+  @@index([riderId])
+  @@index([activityId])
+  @@index([type])
+}
+
+model PointsLog {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id])
+  activityId    String?
+  activity      Activity?       @relation(fields: [activityId], references: [id])
+
+  type          String
+  points        Int
+  mileage       Float           @default(0)
+  description   String?
+  createdAt     DateTime        @default(now())
+
+  @@index([userId])
+  @@index([activityId])
+}
+
+model ActivityEvent {
+  id            String          @id @default(cuid())
+  activityId    String
+  activity      Activity        @relation(fields: [activityId], references: [id])
+  type          EventType
+  title         String
+  description   String?
+  newRoute      Json?
+  createdAt     DateTime        @default(now())
+  createdBy     String?
+
+  @@index([activityId])
+  @@index([type])
+}
