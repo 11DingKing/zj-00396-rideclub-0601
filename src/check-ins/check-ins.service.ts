@@ -96,6 +96,7 @@ export class CheckInsService {
           checkpointId,
           riderId,
           activityId: checkpoint.activityId,
+          groupId: registration.groupId,
           status: CheckInStatus.CHECKED_IN,
           checkedInAt: new Date(),
           latitude: dto.latitude,
@@ -112,6 +113,7 @@ export class CheckInsService {
           checkedInAt: new Date(),
           latitude: dto.latitude,
           longitude: dto.longitude,
+          groupId: registration.groupId,
         },
       });
     }
@@ -385,6 +387,7 @@ export class CheckInsService {
             checkpointId: checkpoint.id,
             riderId: registration.riderId,
             activityId,
+            groupId: registration.groupId,
           });
         }
       }

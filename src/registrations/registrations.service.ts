@@ -269,12 +269,14 @@ export class RegistrationsService {
             checkpointId: cp.id,
             riderId,
             activityId: registration.activityId,
+            groupId: registration.groupId,
             status: "OPT_OUT",
             optOutReason: dto.reason,
           },
           update: {
             status: "OPT_OUT",
             optOutReason: dto.reason,
+            groupId: registration.groupId,
           },
         }),
       );
@@ -328,12 +330,14 @@ export class RegistrationsService {
           checkpointId: startCheckpoint.id,
           riderId: registration.riderId,
           activityId: registration.activityId,
+          groupId: registration.groupId,
           status: CheckInStatus.CHECKED_IN,
           checkedInAt: new Date(),
         },
         update: {
           status: CheckInStatus.CHECKED_IN,
           checkedInAt: new Date(),
+          groupId: registration.groupId,
         },
       });
 

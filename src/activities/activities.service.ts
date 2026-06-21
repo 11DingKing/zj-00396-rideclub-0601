@@ -130,6 +130,28 @@ export class ActivitiesService {
             },
           },
         },
+        groups: {
+          orderBy: { orderIndex: "asc" },
+          include: {
+            leader: {
+              select: {
+                id: true,
+                nickname: true,
+                avatar: true,
+              },
+            },
+            sweeper: {
+              select: {
+                id: true,
+                nickname: true,
+                avatar: true,
+              },
+            },
+            _count: {
+              select: { registrations: true },
+            },
+          },
+        },
         registrations: {
           where: { cancelledAt: null },
           include: {
@@ -138,7 +160,14 @@ export class ActivitiesService {
                 id: true,
                 nickname: true,
                 avatar: true,
+                phone: true,
                 bikeType: true,
+              },
+            },
+            group: {
+              select: {
+                id: true,
+                name: true,
               },
             },
           },

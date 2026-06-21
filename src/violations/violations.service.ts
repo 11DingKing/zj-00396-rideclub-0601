@@ -59,6 +59,7 @@ export class ViolationsService {
           riderId,
           activityId,
           registrationId: registration.id,
+          groupId: registration.groupId,
           recordedBy: leaderId,
         },
       });

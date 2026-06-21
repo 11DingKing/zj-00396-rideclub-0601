@@ -405,4 +405,441 @@ export class StatisticsService {
       },
     };
   }
+
+  async getActivityGroupAnalysis(activityId: string, leaderId: string) {
+    const activity = await this.prisma.activity.findUnique({
+      where: { id: activityId },
+      include: {
+        groups: {
+          orderBy: { orderIndex: "asc" },
+          include: {
+            leader: {
+              select: {
+                id: true,
+                nickname: true,
+                avatar: true,
+              },
+            },
+            sweeper: {
+              select: {
+                id: true,
+                nickname: true,
+                avatar: true,
+              },
+            },
+            registrations: {
+              where: { cancelledAt: null },
+              include: {
+                rider: {
+                  select: {
+                    safetyScore: true,
+                    level: true,
+                  },
+                },
+                checkIns: true,
+                violations: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!activity) {
+      throw new Error("活动不存在");
+    }
+
+    if (activity.leaderId !== leaderId) {
+      throw new Error("只有活动领队可以查看分组分析");
+    }
+
+    const groupAnalysis = [];
+
+    for (const group of activity.groups) {
+      const totalRiders = group.registrations.length;
+
+      if (totalRiders === 0) {
+        groupAnalysis.push({
+          groupId: group.id,
+          groupName: group.name,
+          speedLevel: group.speedLevel,
+          minExperience: group.minExperience,
+          totalRiders: 0,
+          riskScore: 0,
+          riskLevel: "LOW",
+          leader: group.leader,
+          sweeper: group.sweeper,
+        });
+        continue;
+      }
+
+      const totalViolations = group.registrations.reduce(
+        (sum, r) => sum + r.violations.length,
+        0,
+      );
+      const totalMissed = group.registrations.reduce(
+        (sum, r) =>
+          sum +
+          r.checkIns.filter((ci) => ci.status === CheckInStatus.MISSED).length,
+        0,
+      );
+      const totalOptOut = group.registrations.filter(
+        (r) => r.optOutReason !== null,
+      ).length;
+      const avgSafetyScore =
+        group.registrations.reduce(
+          (sum, r) => sum + (r.rider?.safetyScore || 0),
+          0,
+        ) / totalRiders;
+      const avgRiderLevel =
+        group.registrations.reduce((sum, r) => sum + (r.rider?.level || 0), 0) /
+        totalRiders;
+
+      const totalCheckIns = group.registrations.reduce(
+        (sum, r) => sum + r.checkIns.length,
+        0,
+      );
+
+      const violationRate =
+        totalRiders > 0 ? (totalViolations / totalRiders) * 100 : 0;
+      const missedRate =
+        totalCheckIns > 0 ? (totalMissed / totalCheckIns) * 100 : 0;
+      const optOutRate =
+        totalRiders > 0 ? (totalOptOut / totalRiders) * 100 : 0;
+
+      let riskScore = 0;
+      riskScore += (100 - avgSafetyScore) * 0.4;
+      riskScore += violationRate * 2;
+      riskScore += missedRate * 1.5;
+      riskScore += optOutRate * 2;
+      riskScore += (10 - avgRiderLevel) * 2;
+
+      riskScore = Math.min(100, Math.max(0, riskScore));
+
+      let riskLevel = "LOW";
+      if (riskScore >= 70) {
+        riskLevel = "HIGH";
+      } else if (riskScore >= 40) {
+        riskLevel = "MEDIUM";
+      }
+
+      const highRiskRiders = group.registrations
+        .filter(
+          (r) => (r.rider?.safetyScore || 100) < 70 || r.violations.length > 0,
+        )
+        .map((r) => ({
+          riderId: r.riderId,
+          safetyScore: r.rider?.safetyScore,
+          violations: r.violations.length,
+          missedCheckpoints: r.checkIns.filter(
+            (ci) => ci.status === CheckInStatus.MISSED,
+          ).length,
+          hasOptOut: !!r.optOutReason,
+        }));
+
+      groupAnalysis.push({
+        groupId: group.id,
+        groupName: group.name,
+        speedLevel: group.speedLevel,
+        minExperience: group.minExperience,
+        totalRiders,
+        riskScore: Math.round(riskScore),
+        riskLevel,
+        leader: group.leader,
+        sweeper: group.sweeper,
+        metrics: {
+          avgSafetyScore: Math.round(avgSafetyScore),
+          violationRate: Math.round(violationRate),
+          missedCheckpointRate: Math.round(missedRate),
+          optOutRate: Math.round(optOutRate),
+          avgRiderLevel: Math.round(avgRiderLevel),
+          totalViolations,
+          totalMissed,
+          totalOptOut,
+        },
+        highRiskRiders,
+      });
+    }
+
+    const sortedByRisk = [...groupAnalysis].sort(
+      (a, b) => b.riskScore - a.riskScore,
+    );
+    const highestRiskGroup = sortedByRisk[0] || null;
+
+    return {
+      activity: {
+        id: activity.id,
+        title: activity.title,
+        status: activity.status,
+        startAt: activity.startAt,
+      },
+      totalGroups: activity.groups.length,
+      totalParticipants: activity.groups.reduce(
+        (sum, g) => sum + g.registrations.length,
+        0,
+      ),
+      groupAnalysis: sortedByRisk,
+      highestRiskGroup,
+      summary: {
+        highRiskGroups: sortedByRisk.filter((g) => g.riskLevel === "HIGH")
+          .length,
+        mediumRiskGroups: sortedByRisk.filter((g) => g.riskLevel === "MEDIUM")
+          .length,
+        lowRiskGroups: sortedByRisk.filter((g) => g.riskLevel === "LOW").length,
+      },
+    };
+  }
+
+  async getHistoricalGroupRiskTrend(leaderId: string, months: number = 6) {
+    const now = new Date();
+    const startDate = subMonths(now, months);
+
+    const activities = await this.prisma.activity.findMany({
+      where: {
+        leaderId,
+        startAt: {
+          gte: startDate,
+        },
+        status: ActivityStatus.COMPLETED,
+      },
+      include: {
+        groups: {
+          include: {
+            registrations: {
+              where: { cancelledAt: null },
+              include: {
+                rider: {
+                  select: {
+                    safetyScore: true,
+                    level: true,
+                  },
+                },
+                checkIns: true,
+                violations: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const trend: Array<{
+      year: number;
+      month: number;
+      avgRiskScore: number;
+      highRiskCount: number;
+      mediumRiskCount: number;
+      lowRiskCount: number;
+      totalGroups: number;
+    }> = [];
+
+    const monthlyData: Record<
+      string,
+      {
+        riskScores: number[];
+        highRisk: number;
+        mediumRisk: number;
+        lowRisk: number;
+        total: number;
+      }
+    > = {};
+
+    for (const activity of activities) {
+      const monthKey = `${activity.startAt.getFullYear()}-${activity.startAt.getMonth()}`;
+
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = {
+          riskScores: [],
+          highRisk: 0,
+          mediumRisk: 0,
+          lowRisk: 0,
+          total: 0,
+        };
+      }
+
+      for (const group of activity.groups) {
+        const totalRiders = group.registrations.length;
+        if (totalRiders === 0) continue;
+
+        const totalViolations = group.registrations.reduce(
+          (sum, r) => sum + r.violations.length,
+          0,
+        );
+        const totalMissed = group.registrations.reduce(
+          (sum, r) =>
+            sum +
+            r.checkIns.filter((ci) => ci.status === CheckInStatus.MISSED)
+              .length,
+          0,
+        );
+        const totalOptOut = group.registrations.filter(
+          (r) => r.optOutReason !== null,
+        ).length;
+        const avgSafetyScore =
+          group.registrations.reduce(
+            (sum, r) => sum + (r.rider?.safetyScore || 0),
+            0,
+          ) / totalRiders;
+        const avgRiderLevel =
+          group.registrations.reduce(
+            (sum, r) => sum + (r.rider?.level || 0),
+            0,
+          ) / totalRiders;
+
+        const totalCheckIns = group.registrations.reduce(
+          (sum, r) => sum + r.checkIns.length,
+          0,
+        );
+
+        const violationRate =
+          totalRiders > 0 ? (totalViolations / totalRiders) * 100 : 0;
+        const missedRate =
+          totalCheckIns > 0 ? (totalMissed / totalCheckIns) * 100 : 0;
+        const optOutRate =
+          totalRiders > 0 ? (totalOptOut / totalRiders) * 100 : 0;
+
+        let riskScore = 0;
+        riskScore += (100 - avgSafetyScore) * 0.4;
+        riskScore += violationRate * 2;
+        riskScore += missedRate * 1.5;
+        riskScore += optOutRate * 2;
+        riskScore += (10 - avgRiderLevel) * 2;
+
+        riskScore = Math.min(100, Math.max(0, riskScore));
+
+        monthlyData[monthKey].riskScores.push(riskScore);
+        monthlyData[monthKey].total++;
+
+        if (riskScore >= 70) {
+          monthlyData[monthKey].highRisk++;
+        } else if (riskScore >= 40) {
+          monthlyData[monthKey].mediumRisk++;
+        } else {
+          monthlyData[monthKey].lowRisk++;
+        }
+      }
+    }
+
+    for (let i = months - 1; i >= 0; i--) {
+      const monthDate = subMonths(now, i);
+      const monthKey = `${monthDate.getFullYear()}-${monthDate.getMonth()}`;
+      const data = monthlyData[monthKey] || {
+        riskScores: [],
+        highRisk: 0,
+        mediumRisk: 0,
+        lowRisk: 0,
+        total: 0,
+      };
+
+      const avgRiskScore =
+        data.riskScores.length > 0
+          ? Math.round(
+              data.riskScores.reduce((a, b) => a + b, 0) /
+                data.riskScores.length,
+            )
+          : 0;
+
+      trend.push({
+        year: monthDate.getFullYear(),
+        month: monthDate.getMonth() + 1,
+        avgRiskScore,
+        highRiskCount: data.highRisk,
+        mediumRiskCount: data.mediumRisk,
+        lowRiskCount: data.lowRisk,
+        totalGroups: data.total,
+      });
+    }
+
+    const speedLevelRisk: Record<string, { avgRisk: number; count: number }> =
+      {};
+
+    for (const activity of activities) {
+      for (const group of activity.groups) {
+        if (group.registrations.length === 0) continue;
+
+        const totalRiders = group.registrations.length;
+        const totalViolations = group.registrations.reduce(
+          (sum, r) => sum + r.violations.length,
+          0,
+        );
+        const totalMissed = group.registrations.reduce(
+          (sum, r) =>
+            sum +
+            r.checkIns.filter((ci) => ci.status === CheckInStatus.MISSED)
+              .length,
+          0,
+        );
+        const totalOptOut = group.registrations.filter(
+          (r) => r.optOutReason !== null,
+        ).length;
+        const avgSafetyScore =
+          group.registrations.reduce(
+            (sum, r) => sum + (r.rider?.safetyScore || 0),
+            0,
+          ) / totalRiders;
+        const avgRiderLevel =
+          group.registrations.reduce(
+            (sum, r) => sum + (r.rider?.level || 0),
+            0,
+          ) / totalRiders;
+
+        const totalCheckIns = group.registrations.reduce(
+          (sum, r) => sum + r.checkIns.length,
+          0,
+        );
+
+        const violationRate =
+          totalRiders > 0 ? (totalViolations / totalRiders) * 100 : 0;
+        const missedRate =
+          totalCheckIns > 0 ? (totalMissed / totalCheckIns) * 100 : 0;
+        const optOutRate =
+          totalRiders > 0 ? (totalOptOut / totalRiders) * 100 : 0;
+
+        let riskScore = 0;
+        riskScore += (100 - avgSafetyScore) * 0.4;
+        riskScore += violationRate * 2;
+        riskScore += missedRate * 1.5;
+        riskScore += optOutRate * 2;
+        riskScore += (10 - avgRiderLevel) * 2;
+
+        riskScore = Math.min(100, Math.max(0, riskScore));
+
+        if (!speedLevelRisk[group.speedLevel]) {
+          speedLevelRisk[group.speedLevel] = { avgRisk: 0, count: 0 };
+        }
+        speedLevelRisk[group.speedLevel].avgRisk += riskScore;
+        speedLevelRisk[group.speedLevel].count++;
+      }
+    }
+
+    const speedLevelAnalysis = Object.entries(speedLevelRisk).map(
+      ([level, data]) => ({
+        speedLevel: level,
+        avgRiskScore:
+          data.count > 0 ? Math.round(data.avgRisk / data.count) : 0,
+        groupCount: data.count,
+      }),
+    );
+
+    return {
+      trend,
+      speedLevelAnalysis,
+      overallStats: {
+        totalActivities: activities.length,
+        totalGroups: Object.values(monthlyData).reduce(
+          (sum, d) => sum + d.total,
+          0,
+        ),
+        avgOverallRisk:
+          Object.values(monthlyData).reduce(
+            (sum, d) => sum + d.riskScores.reduce((a, b) => a + b, 0),
+            0,
+          ) /
+            Object.values(monthlyData).reduce(
+              (sum, d) => sum + d.riskScores.length,
+              0,
+            ) || 0,
+      },
+    };
+  }
 }

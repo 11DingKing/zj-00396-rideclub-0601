@@ -4,8 +4,8 @@ import {
   IsBoolean,
   IsOptional,
   IsDateString,
-} from 'class-validator';
-import { BikeType } from '@prisma/client';
+} from "class-validator";
+import { BikeType, SpeedLevel } from "@prisma/client";
 
 export class CreateRegistrationDto {
   @IsEnum(BikeType)
@@ -34,6 +34,10 @@ export class CreateRegistrationDto {
   @IsBoolean()
   @IsOptional()
   hasLights?: boolean;
+
+  @IsEnum(SpeedLevel)
+  @IsOptional()
+  selfReportedSpeed?: SpeedLevel;
 }
 
 export class OptOutDto {

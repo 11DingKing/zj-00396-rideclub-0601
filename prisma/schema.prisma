@@ -70,6 +70,20 @@ enum EventType {
   PAUSE
   RESUME
   EARLY_FINISH
+  SAFETY_BROADCAST
+}
+
+enum SpeedLevel {
+  SLOW
+  MODERATE
+  FAST
+  RACING
+}
+
+enum GroupRole {
+  RIDER
+  LEADER
+  SWEEPER
 }
 
 model User {
@@ -97,6 +111,8 @@ model User {
   recentRideCapacity    String?
 
   leadingActivities Activity[] @relation("leader")
+  leadingGroups     ActivityGroup[] @relation("groupLeader")
+  sweepingGroups    ActivityGroup[] @relation("groupSweeper")
   registrations     Registration[]
   checkIns          CheckIn[]
   violations        Violation[]
@@ -127,6 +143,7 @@ model Activity {
 
   checkpoints     Checkpoint[]
   registrations   Registration[]
+  groups          ActivityGroup[]
   events          ActivityEvent[]
   violations      Violation[]
   pointsLogs      PointsLog[]
@@ -170,6 +187,10 @@ model Registration {
   activity      Activity        @relation(fields: [activityId], references: [id])
   riderId       String
   rider         User            @relation(fields: [riderId], references: [id])
+  groupId       String?
+  group         ActivityGroup?  @relation(fields: [groupId], references: [id])
+  groupRole     GroupRole       @default(RIDER)
+  selfReportedSpeed SpeedLevel?
 
   bikeType      BikeType
   hasInsurance  Boolean
@@ -192,6 +213,7 @@ model Registration {
   @@unique([activityId, riderId])
   @@index([activityId])
   @@index([riderId])
+  @@index([groupId])
 }
 
 model CheckIn {
@@ -203,6 +225,8 @@ model CheckIn {
   riderId         String
   rider           User            @relation(fields: [riderId], references: [id])
   activityId      String
+  groupId         String?
+  group           ActivityGroup?  @relation(fields: [groupId], references: [id])
 
   status          CheckInStatus   @default(PENDING)
   checkedInAt     DateTime?
@@ -218,6 +242,7 @@ model CheckIn {
   @@index([activityId])
   @@index([riderId])
   @@index([status])
+  @@index([groupId])
 }
 
 model Violation {
@@ -228,6 +253,8 @@ model Violation {
   activity      Activity        @relation(fields: [activityId], references: [id])
   registrationId String?
   registration  Registration?   @relation(fields: [registrationId], references: [id])
+  groupId       String?
+  group         ActivityGroup?  @relation(fields: [groupId], references: [id])
 
   type          ViolationType
   description   String?
@@ -238,6 +265,7 @@ model Violation {
   @@index([riderId])
   @@index([activityId])
   @@index([type])
+  @@index([groupId])
 }
 
 model PointsLog {
@@ -246,6 +274,8 @@ model PointsLog {
   user          User            @relation(fields: [userId], references: [id])
   activityId    String?
   activity      Activity?       @relation(fields: [activityId], references: [id])
+  groupId       String?
+  group         ActivityGroup?  @relation(fields: [groupId], references: [id])
 
   type          String
   points        Int
@@ -255,12 +285,15 @@ model PointsLog {
 
   @@index([userId])
   @@index([activityId])
+  @@index([groupId])
 }
 
 model ActivityEvent {
   id            String          @id @default(cuid())
   activityId    String
   activity      Activity        @relation(fields: [activityId], references: [id])
+  groupId       String?
+  group         ActivityGroup?  @relation(fields: [groupId], references: [id])
   type          EventType
   title         String
   description   String?
@@ -270,4 +303,34 @@ model ActivityEvent {
 
   @@index([activityId])
   @@index([type])
+  @@index([groupId])
+}
+
+model ActivityGroup {
+  id            String          @id @default(cuid())
+  activityId    String
+  activity      Activity        @relation(fields: [activityId], references: [id])
+  name          String
+  speedLevel    SpeedLevel
+  minExperience RouteLevel
+  description   String?
+  orderIndex    Int
+
+  leaderId      String?
+  leader        User?           @relation("groupLeader", fields: [leaderId], references: [id])
+  sweeperId     String?
+  sweeper       User?           @relation("groupSweeper", fields: [sweeperId], references: [id])
+
+  registrations Registration[]
+  checkIns      CheckIn[]
+  violations    Violation[]
+  pointsLogs    PointsLog[]
+  events        ActivityEvent[]
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@unique([activityId, name])
+  @@index([activityId])
+  @@index([speedLevel])
 }

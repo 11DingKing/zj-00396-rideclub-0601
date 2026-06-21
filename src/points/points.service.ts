@@ -93,6 +93,7 @@ export class PointsService {
       await this.addPoints(
         registration.riderId,
         activityId,
+        registration.groupId,
         "ACTIVITY_COMPLETION",
         finalPoints,
         finalMileage,
@@ -118,6 +119,7 @@ export class PointsService {
   async addPoints(
     userId: string,
     activityId: string | null,
+    groupId: string | null,
     type: string,
     points: number,
     mileage: number = 0,
@@ -128,6 +130,7 @@ export class PointsService {
         data: {
           userId,
           activityId,
+          groupId,
           type,
           points,
           mileage,
