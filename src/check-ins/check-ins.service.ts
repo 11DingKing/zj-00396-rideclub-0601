@@ -10,12 +10,8 @@ import {
   MissCheckInDto,
   UpdateCheckInStatusDto,
 } from "./dto/check-in.dto";
-import {
-  CheckInStatus,
-  CheckpointType,
-  ActivityStatus,
-  UserRole,
-} from "@prisma/client";
+import { CheckInStatus, CheckpointType, ActivityStatus } from "@prisma/client";
+import { canCheckInAfterPrevious } from "../common/rules";
 
 @Injectable()
 export class CheckInsService {
@@ -71,11 +67,7 @@ export class CheckInsService {
       const prevCheckIn = registration.checkIns.find(
         (ci) => ci.checkpointId === prevCp.id,
       );
-      if (
-        !prevCheckIn ||
-        (prevCheckIn.status !== CheckInStatus.CHECKED_IN &&
-          prevCheckIn.status !== CheckInStatus.OPT_OUT)
-      ) {
+      if (!canCheckInAfterPrevious(prevCheckIn?.status)) {
         throw new BadRequestException(`请先完成前一个签到点：${prevCp.name}`);
       }
     }

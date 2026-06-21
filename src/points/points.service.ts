@@ -1,6 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import { Activity, User, CheckpointType, CheckInStatus } from "@prisma/client";
+import {
+  isEligibleForPoints,
+  hasFullAttendance,
+  sumViolationDeductions,
+  calculateFinalPoints,
+  calculateLevel,
+} from "../common/rules";
 
 @Injectable()
 export class PointsService {
@@ -40,54 +46,27 @@ export class PointsService {
     }> = [];
 
     for (const registration of activity.registrations) {
-      const startCheckIn = registration.checkIns.find(
-        (ci) =>
-          ci.checkpoint.type === CheckpointType.START &&
-          ci.status === CheckInStatus.CHECKED_IN,
-      );
-
-      if (!startCheckIn) {
+      if (!isEligibleForPoints(registration as any)) {
         continue;
       }
 
-      const endCheckIn = registration.checkIns.find(
-        (ci) =>
-          ci.checkpoint.type === CheckpointType.END &&
-          ci.status === CheckInStatus.CHECKED_IN,
+      const checkpointIds = activity.checkpoints.map((cp) => cp.id);
+      const isFullAttendance = hasFullAttendance(
+        registration as any,
+        checkpointIds,
       );
 
-      if (!endCheckIn) {
-        continue;
-      }
-
-      const allCheckIns = registration.checkIns.filter(
-        (ci) => ci.status === CheckInStatus.CHECKED_IN,
+      const totalViolationDeduction = sumViolationDeductions(
+        registration.violations,
       );
 
-      const hasAllCheckpoints = activity.checkpoints.every((cp) =>
-        registration.checkIns.some(
-          (ci) =>
-            ci.checkpointId === cp.id && ci.status === CheckInStatus.CHECKED_IN,
-        ),
-      );
+      const finalPoints = calculateFinalPoints({
+        mileage,
+        routeLevel: activity.routeLevel,
+        hasFullAttendance: isFullAttendance,
+        totalViolationDeduction,
+      });
 
-      let basePoints = Math.floor(mileage);
-      if (hasAllCheckpoints) {
-        basePoints += 10;
-      }
-
-      if (activity.routeLevel === "ADVANCED") {
-        basePoints += 15;
-      } else if (activity.routeLevel === "EXPERT") {
-        basePoints += 30;
-      }
-
-      const totalViolationPoints = registration.violations.reduce(
-        (sum, v) => sum + v.pointsDeducted,
-        0,
-      );
-
-      const finalPoints = Math.max(0, basePoints - totalViolationPoints);
       const finalMileage = mileage;
 
       await this.addPoints(
@@ -154,7 +133,7 @@ export class PointsService {
       const newTotalMileage = user.totalMileage + mileage;
       const newTotalRides =
         type === "ACTIVITY_COMPLETION" ? user.totalRides + 1 : user.totalRides;
-      const newLevel = this.calculateLevel(newTotalMileage);
+      const newLevel = calculateLevel(newTotalMileage);
 
       await tx.user.update({
         where: { id: userId },
@@ -207,19 +186,6 @@ export class PointsService {
       pageSize,
       totalPoints: totalPoints._sum.points || 0,
     };
-  }
-
-  private calculateLevel(totalMileage: number): number {
-    if (totalMileage >= 10000) return 10;
-    if (totalMileage >= 5000) return 9;
-    if (totalMileage >= 3000) return 8;
-    if (totalMileage >= 2000) return 7;
-    if (totalMileage >= 1000) return 6;
-    if (totalMileage >= 500) return 5;
-    if (totalMileage >= 200) return 4;
-    if (totalMileage >= 100) return 3;
-    if (totalMileage >= 50) return 2;
-    return 1;
   }
 
   async getLeaderboard(

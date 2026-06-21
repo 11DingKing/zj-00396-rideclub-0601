@@ -11,12 +11,13 @@ import {
   CreateEventDto,
   ChangeRouteDto,
 } from "./dto/create-activity.dto";
+import { ActivityStatus, EventType, CheckpointType } from "@prisma/client";
 import {
-  ActivityStatus,
-  EventType,
-  UserRole,
-  CheckpointType,
-} from "@prisma/client";
+  canTransitionTo,
+  EDITABLE_STATUSES,
+  ACTIVE_STATUSES,
+  CANCELLABLE_STATUSES,
+} from "../common/rules";
 
 @Injectable()
 export class ActivitiesService {
@@ -201,10 +202,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以编辑");
     }
 
-    if (
-      activity.status !== ActivityStatus.DRAFT &&
-      activity.status !== ActivityStatus.PUBLISHED
-    ) {
+    if (!EDITABLE_STATUSES.includes(activity.status)) {
       throw new BadRequestException("活动已开始，无法编辑基本信息");
     }
 
@@ -244,7 +242,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以发布");
     }
 
-    if (activity.status !== ActivityStatus.DRAFT) {
+    if (!canTransitionTo(activity.status, ActivityStatus.PUBLISHED)) {
       throw new BadRequestException("活动状态不正确");
     }
 
@@ -267,10 +265,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以开始");
     }
 
-    if (
-      activity.status !== ActivityStatus.PUBLISHED &&
-      activity.status !== ActivityStatus.REGISTRATION_CLOSED
-    ) {
+    if (!canTransitionTo(activity.status, ActivityStatus.IN_PROGRESS)) {
       throw new BadRequestException("活动状态不正确");
     }
 
@@ -306,7 +301,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以暂停");
     }
 
-    if (activity.status !== ActivityStatus.IN_PROGRESS) {
+    if (!canTransitionTo(activity.status, ActivityStatus.PAUSED)) {
       throw new BadRequestException("只有进行中的活动可以暂停");
     }
 
@@ -342,7 +337,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以恢复");
     }
 
-    if (activity.status !== ActivityStatus.PAUSED) {
+    if (!canTransitionTo(activity.status, ActivityStatus.IN_PROGRESS)) {
       throw new BadRequestException("只有暂停的活动可以恢复");
     }
 
@@ -377,10 +372,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以结束");
     }
 
-    if (
-      activity.status !== ActivityStatus.IN_PROGRESS &&
-      activity.status !== ActivityStatus.PAUSED
-    ) {
+    if (!canTransitionTo(activity.status, ActivityStatus.COMPLETED)) {
       throw new BadRequestException("活动状态不正确");
     }
 
@@ -429,10 +421,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以取消");
     }
 
-    if (
-      activity.status === ActivityStatus.IN_PROGRESS ||
-      activity.status === ActivityStatus.COMPLETED
-    ) {
+    if (!CANCELLABLE_STATUSES.includes(activity.status)) {
       throw new BadRequestException("活动已开始或已完成，无法取消");
     }
 
@@ -460,10 +449,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以改线");
     }
 
-    if (
-      activity.status !== ActivityStatus.IN_PROGRESS &&
-      activity.status !== ActivityStatus.PAUSED
-    ) {
+    if (!ACTIVE_STATUSES.includes(activity.status)) {
       throw new BadRequestException("只有进行中的活动可以改线");
     }
 
@@ -506,10 +492,7 @@ export class ActivitiesService {
       throw new ForbiddenException("只有活动领队可以添加事件");
     }
 
-    if (
-      activity.status !== ActivityStatus.IN_PROGRESS &&
-      activity.status !== ActivityStatus.PAUSED
-    ) {
+    if (!ACTIVE_STATUSES.includes(activity.status)) {
       throw new BadRequestException("只有进行中的活动可以添加事件");
     }
 

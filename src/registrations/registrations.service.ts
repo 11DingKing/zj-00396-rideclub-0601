@@ -11,13 +11,8 @@ import {
   OptOutDto,
   MarkPresenceDto,
 } from "./dto/registration.dto";
-import {
-  CheckInStatus,
-  ActivityStatus,
-  Activity,
-  CheckpointType,
-  UserRole,
-} from "@prisma/client";
+import { CheckInStatus, ActivityStatus, CheckpointType } from "@prisma/client";
+import { ACTIVE_STATUSES } from "../common/rules";
 
 @Injectable()
 export class RegistrationsService {
@@ -245,7 +240,7 @@ export class RegistrationsService {
       throw new ForbiddenException("只能操作自己的报名");
     }
 
-    if (registration.activity.status !== ActivityStatus.IN_PROGRESS) {
+    if (!ACTIVE_STATUSES.includes(registration.activity.status)) {
       throw new BadRequestException("只有进行中的活动可以申请退队");
     }
 

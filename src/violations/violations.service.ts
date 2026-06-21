@@ -5,14 +5,8 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateViolationDto } from "./dto/violation.dto";
-import { ViolationType, UserRole, Violation } from "@prisma/client";
-
-const VIOLATION_POINTS: Record<ViolationType, number> = {
-  [ViolationType.NO_LIGHTS_NIGHT_RIDE]: 10,
-  [ViolationType.NO_HELMET]: 15,
-  [ViolationType.EARLY_QUIT_WITHOUT_REASON]: 5,
-  [ViolationType.MISSED_CHECKPOINT]: 3,
-};
+import { ViolationType } from "@prisma/client";
+import { VIOLATION_POINTS, judgeMissedCheckpoint } from "../common/rules";
 
 @Injectable()
 export class ViolationsService {
@@ -331,38 +325,17 @@ export class ViolationsService {
           (ci) => ci.checkpointId === checkpoint.id,
         );
 
-        let isMissed = false;
-        let hasExcuse = false;
-        let missReason = "";
+        const judgment = judgeMissedCheckpoint(checkIn, checkpoint.name);
 
-        if (!checkIn) {
-          isMissed = true;
-          hasExcuse = false;
-          missReason = "完全缺席，未产生任何签到记录";
-        } else if (checkIn.status === "MISSED") {
-          isMissed = true;
-          if (checkIn.missReason && checkIn.missReason.trim() !== "") {
-            hasExcuse = true;
-            missReason = checkIn.missReason;
-          } else {
-            hasExcuse = false;
-            missReason = "无原因漏签";
-          }
-        } else if (checkIn.status === "PENDING") {
-          isMissed = true;
-          hasExcuse = false;
-          missReason = "未到场签到，状态仍为待处理";
-        }
-
-        if (!isMissed) {
+        if (!judgment.isMissed) {
           continue;
         }
 
-        if (hasExcuse) {
+        if (judgment.hasExcuse) {
           excusedResults.push({
             riderId: registration.riderId,
             checkpoint: checkpoint.name,
-            reason: missReason,
+            reason: judgment.reason,
           });
           continue;
         }
@@ -385,13 +358,13 @@ export class ViolationsService {
             leaderId,
             {
               type: ViolationType.MISSED_CHECKPOINT,
-              description: `未签到：${checkpoint.name}（${missReason}）`,
+              description: `未签到：${checkpoint.name}（${judgment.reason}）`,
             },
           );
           violationResults.push({
             riderId: registration.riderId,
             checkpoint: checkpoint.name,
-            reason: missReason,
+            reason: judgment.reason,
             violation,
           });
         }
