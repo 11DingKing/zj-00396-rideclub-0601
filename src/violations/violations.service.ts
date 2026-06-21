@@ -2,10 +2,10 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-} from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateViolationDto } from './dto/violation.dto';
-import { ViolationType, UserRole, Violation } from '@prisma/client';
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { CreateViolationDto } from "./dto/violation.dto";
+import { ViolationType, UserRole, Violation } from "@prisma/client";
 
 const VIOLATION_POINTS: Record<ViolationType, number> = {
   [ViolationType.NO_LIGHTS_NIGHT_RIDE]: 10,
@@ -29,11 +29,11 @@ export class ViolationsService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有领队可以记录违规');
+      throw new ForbiddenException("只有领队可以记录违规");
     }
 
     const registration = await this.prisma.registration.findUnique({
@@ -46,7 +46,7 @@ export class ViolationsService {
     });
 
     if (!registration || registration.cancelledAt) {
-      throw new NotFoundException('该用户未报名此活动');
+      throw new NotFoundException("该用户未报名此活动");
     }
 
     const pointsDeducted = dto.pointsDeducted ?? VIOLATION_POINTS[dto.type];
@@ -82,7 +82,7 @@ export class ViolationsService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== currentUserId) {
@@ -100,7 +100,7 @@ export class ViolationsService {
             },
           },
         },
-        orderBy: { recordedAt: 'desc' },
+        orderBy: { recordedAt: "desc" },
       });
     }
 
@@ -122,7 +122,7 @@ export class ViolationsService {
           },
         },
       },
-      orderBy: { recordedAt: 'desc' },
+      orderBy: { recordedAt: "desc" },
     });
   }
 
@@ -140,7 +140,7 @@ export class ViolationsService {
             },
           },
         },
-        orderBy: { recordedAt: 'desc' },
+        orderBy: { recordedAt: "desc" },
         skip,
         take: pageSize,
       }),
@@ -179,14 +179,14 @@ export class ViolationsService {
     });
 
     if (!violation) {
-      throw new NotFoundException('违规记录不存在');
+      throw new NotFoundException("违规记录不存在");
     }
 
     if (
       violation.riderId !== currentUserId &&
       violation.activity.leaderId !== currentUserId
     ) {
-      throw new ForbiddenException('无权查看此违规记录');
+      throw new ForbiddenException("无权查看此违规记录");
     }
 
     return violation;
@@ -203,15 +203,15 @@ export class ViolationsService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有领队可以检查装备');
+      throw new ForbiddenException("只有领队可以检查装备");
     }
 
     if (!activity.isNightRide) {
-      return { message: '此活动不是夜骑，无需检查车灯' };
+      return { message: "此活动不是夜骑，无需检查车灯" };
     }
 
     const results: Array<{
@@ -235,7 +235,7 @@ export class ViolationsService {
             leaderId,
             {
               type: ViolationType.NO_LIGHTS_NIGHT_RIDE,
-              description: '夜骑未携带车灯',
+              description: "夜骑未携带车灯",
             },
           );
           results.push({
@@ -261,7 +261,7 @@ export class ViolationsService {
             leaderId,
             {
               type: ViolationType.NO_HELMET,
-              description: '骑行未佩戴头盔',
+              description: "骑行未佩戴头盔",
             },
           );
           results.push({
@@ -285,28 +285,39 @@ export class ViolationsService {
     const activity = await this.prisma.activity.findUnique({
       where: { id: activityId },
       include: {
-        checkpoints: true,
+        checkpoints: {
+          orderBy: { orderIndex: "asc" },
+        },
         registrations: {
           where: { cancelledAt: null },
           include: {
-            checkIns: true,
+            checkIns: {
+              include: { checkpoint: true },
+            },
           },
         },
       },
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有领队可以执行此操作');
+      throw new ForbiddenException("只有领队可以执行此操作");
     }
 
-    const results: Array<{
+    const violationResults: Array<{
       riderId: string;
       checkpoint: string;
+      reason: string;
       violation: any;
+    }> = [];
+
+    const excusedResults: Array<{
+      riderId: string;
+      checkpoint: string;
+      reason: string;
     }> = [];
 
     for (const registration of activity.registrations) {
@@ -319,43 +330,80 @@ export class ViolationsService {
           (ci) => ci.checkpointId === checkpoint.id,
         );
 
-        if (
-          checkIn &&
-          checkIn.status === 'MISSED' &&
-          !checkIn.missReason
-        ) {
-          const existingViolation = await this.prisma.violation.findFirst({
-            where: {
-              activityId,
-              riderId: registration.riderId,
-              type: ViolationType.MISSED_CHECKPOINT,
-            },
-          });
+        let isMissed = false;
+        let hasExcuse = false;
+        let missReason = "";
 
-          if (!existingViolation) {
-            const violation = await this.create(
-              activityId,
-              registration.riderId,
-              leaderId,
-              {
-                type: ViolationType.MISSED_CHECKPOINT,
-                description: `未签到：${checkpoint.name}`,
-              },
-            );
-            results.push({
-              riderId: registration.riderId,
-              checkpoint: checkpoint.name,
-              violation,
-            });
+        if (!checkIn) {
+          isMissed = true;
+          hasExcuse = false;
+          missReason = "完全缺席，未产生任何签到记录";
+        } else if (checkIn.status === "MISSED") {
+          isMissed = true;
+          if (checkIn.missReason && checkIn.missReason.trim() !== "") {
+            hasExcuse = true;
+            missReason = checkIn.missReason;
+          } else {
+            hasExcuse = false;
+            missReason = "无原因漏签";
           }
+        } else if (checkIn.status === "PENDING") {
+          isMissed = true;
+          hasExcuse = false;
+          missReason = "未到场签到，状态仍为待处理";
+        }
+
+        if (!isMissed) {
+          continue;
+        }
+
+        if (hasExcuse) {
+          excusedResults.push({
+            riderId: registration.riderId,
+            checkpoint: checkpoint.name,
+            reason: missReason,
+          });
+          continue;
+        }
+
+        const existingViolation = await this.prisma.violation.findFirst({
+          where: {
+            activityId,
+            riderId: registration.riderId,
+            type: ViolationType.MISSED_CHECKPOINT,
+            description: {
+              contains: checkpoint.name,
+            },
+          },
+        });
+
+        if (!existingViolation) {
+          const violation = await this.create(
+            activityId,
+            registration.riderId,
+            leaderId,
+            {
+              type: ViolationType.MISSED_CHECKPOINT,
+              description: `未签到：${checkpoint.name}（${missReason}）`,
+            },
+          );
+          violationResults.push({
+            riderId: registration.riderId,
+            checkpoint: checkpoint.name,
+            reason: missReason,
+            violation,
+          });
         }
       }
     }
 
     return {
       activity: activity.title,
-      violationsRecorded: results.length,
-      results,
+      totalCheckpoints: activity.checkpoints.length,
+      violationsRecorded: violationResults.length,
+      excusedMissed: excusedResults.length,
+      violationResults,
+      excusedResults,
     };
   }
 }

@@ -3,20 +3,20 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-} from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateActivityDto,
   UpdateActivityDto,
   CreateEventDto,
   ChangeRouteDto,
-} from './dto/create-activity.dto';
+} from "./dto/create-activity.dto";
 import {
   ActivityStatus,
   EventType,
   UserRole,
   CheckpointType,
-} from '@prisma/client';
+} from "@prisma/client";
 
 @Injectable()
 export class ActivitiesService {
@@ -58,7 +58,7 @@ export class ActivitiesService {
           },
         },
         checkpoints: {
-          orderBy: { orderIndex: 'asc' },
+          orderBy: { orderIndex: "asc" },
         },
       },
     });
@@ -66,7 +66,12 @@ export class ActivitiesService {
     return activity;
   }
 
-  async findAll(page: number = 1, pageSize: number = 10, status?: ActivityStatus, level?: string) {
+  async findAll(
+    page: number = 1,
+    pageSize: number = 10,
+    status?: ActivityStatus,
+    level?: string,
+  ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
 
@@ -89,13 +94,13 @@ export class ActivitiesService {
             },
           },
           checkpoints: {
-            orderBy: { orderIndex: 'asc' },
+            orderBy: { orderIndex: "asc" },
           },
           _count: {
             select: { registrations: { where: { cancelledAt: null } } },
           },
         },
-        orderBy: { startAt: 'desc' },
+        orderBy: { startAt: "desc" },
         skip,
         take: pageSize,
       }),
@@ -118,7 +123,7 @@ export class ActivitiesService {
           },
         },
         checkpoints: {
-          orderBy: { orderIndex: 'asc' },
+          orderBy: { orderIndex: "asc" },
           include: {
             _count: {
               select: { checkIns: true },
@@ -139,7 +144,7 @@ export class ActivitiesService {
           },
         },
         events: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
         },
         _count: {
           select: { registrations: { where: { cancelledAt: null } } },
@@ -148,7 +153,7 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     return activity;
@@ -160,18 +165,18 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以编辑');
+      throw new ForbiddenException("只有活动领队可以编辑");
     }
 
     if (
       activity.status !== ActivityStatus.DRAFT &&
       activity.status !== ActivityStatus.PUBLISHED
     ) {
-      throw new BadRequestException('活动已开始，无法编辑基本信息');
+      throw new BadRequestException("活动已开始，无法编辑基本信息");
     }
 
     const updateData: any = { ...dto };
@@ -191,7 +196,7 @@ export class ActivitiesService {
           },
         },
         checkpoints: {
-          orderBy: { orderIndex: 'asc' },
+          orderBy: { orderIndex: "asc" },
         },
       },
     });
@@ -203,15 +208,15 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以发布');
+      throw new ForbiddenException("只有活动领队可以发布");
     }
 
     if (activity.status !== ActivityStatus.DRAFT) {
-      throw new BadRequestException('活动状态不正确');
+      throw new BadRequestException("活动状态不正确");
     }
 
     return this.prisma.activity.update({
@@ -226,49 +231,35 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以开始');
+      throw new ForbiddenException("只有活动领队可以开始");
     }
 
-    if (activity.status !== ActivityStatus.PUBLISHED && activity.status !== ActivityStatus.REGISTRATION_CLOSED) {
-      throw new BadRequestException('活动状态不正确');
+    if (
+      activity.status !== ActivityStatus.PUBLISHED &&
+      activity.status !== ActivityStatus.REGISTRATION_CLOSED
+    ) {
+      throw new BadRequestException("活动状态不正确");
     }
-
-    const registrations = await this.prisma.registration.findMany({
-      where: { activityId: id, cancelledAt: null },
-      include: { checkIns: true },
-    });
 
     const startCheckpoint = await this.prisma.checkpoint.findFirst({
       where: { activityId: id, type: CheckpointType.START },
     });
 
     if (!startCheckpoint) {
-      throw new BadRequestException('活动未设置出发点');
+      throw new BadRequestException("活动未设置出发点");
     }
 
-    const checkIns = registrations
-      .filter((reg) => !reg.checkIns.some((ci) => ci.checkpointId === startCheckpoint.id))
-      .map((reg) => ({
-        registrationId: reg.id,
-        checkpointId: startCheckpoint.id,
-        riderId: reg.riderId,
-        activityId: id,
-      }));
-
-    await this.prisma.$transaction([
-      this.prisma.checkIn.createMany({ data: checkIns }),
-      this.prisma.activity.update({
-        where: { id },
-        data: {
-          status: ActivityStatus.IN_PROGRESS,
-          actualStartTime: new Date(),
-        },
-      }),
-    ]);
+    await this.prisma.activity.update({
+      where: { id },
+      data: {
+        status: ActivityStatus.IN_PROGRESS,
+        actualStartTime: new Date(),
+      },
+    });
 
     return this.findOne(id);
   }
@@ -279,15 +270,15 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以暂停');
+      throw new ForbiddenException("只有活动领队可以暂停");
     }
 
     if (activity.status !== ActivityStatus.IN_PROGRESS) {
-      throw new BadRequestException('只有进行中的活动可以暂停');
+      throw new BadRequestException("只有进行中的活动可以暂停");
     }
 
     await this.prisma.$transaction([
@@ -295,7 +286,7 @@ export class ActivitiesService {
         data: {
           activityId: id,
           type: EventType.PAUSE,
-          title: '活动暂停',
+          title: "活动暂停",
           description: reason,
           createdBy: leaderId,
         },
@@ -315,15 +306,15 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以恢复');
+      throw new ForbiddenException("只有活动领队可以恢复");
     }
 
     if (activity.status !== ActivityStatus.PAUSED) {
-      throw new BadRequestException('只有暂停的活动可以恢复');
+      throw new BadRequestException("只有暂停的活动可以恢复");
     }
 
     await this.prisma.$transaction([
@@ -331,7 +322,7 @@ export class ActivitiesService {
         data: {
           activityId: id,
           type: EventType.RESUME,
-          title: '活动恢复',
+          title: "活动恢复",
           createdBy: leaderId,
         },
       }),
@@ -350,18 +341,18 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以结束');
+      throw new ForbiddenException("只有活动领队可以结束");
     }
 
     if (
       activity.status !== ActivityStatus.IN_PROGRESS &&
       activity.status !== ActivityStatus.PAUSED
     ) {
-      throw new BadRequestException('活动状态不正确');
+      throw new BadRequestException("活动状态不正确");
     }
 
     const endCheckpoint = await this.prisma.checkpoint.findFirst({
@@ -376,7 +367,7 @@ export class ActivitiesService {
             checkIns: {
               some: {
                 checkpointId: endCheckpoint.id,
-                status: 'CHECKED_IN',
+                status: "CHECKED_IN",
               },
             },
           },
@@ -402,22 +393,27 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以取消');
+      throw new ForbiddenException("只有活动领队可以取消");
     }
 
-    if (activity.status === ActivityStatus.IN_PROGRESS || activity.status === ActivityStatus.COMPLETED) {
-      throw new BadRequestException('活动已开始或已完成，无法取消');
+    if (
+      activity.status === ActivityStatus.IN_PROGRESS ||
+      activity.status === ActivityStatus.COMPLETED
+    ) {
+      throw new BadRequestException("活动已开始或已完成，无法取消");
     }
 
     return this.prisma.activity.update({
       where: { id },
       data: {
         status: ActivityStatus.CANCELLED,
-        description: activity.description ? `${activity.description}\n\n取消原因：${reason}` : `取消原因：${reason}`,
+        description: activity.description
+          ? `${activity.description}\n\n取消原因：${reason}`
+          : `取消原因：${reason}`,
       },
     });
   }
@@ -428,18 +424,18 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以改线');
+      throw new ForbiddenException("只有活动领队可以改线");
     }
 
     if (
       activity.status !== ActivityStatus.IN_PROGRESS &&
       activity.status !== ActivityStatus.PAUSED
     ) {
-      throw new BadRequestException('只有进行中的活动可以改线');
+      throw new BadRequestException("只有进行中的活动可以改线");
     }
 
     await this.prisma.$transaction([
@@ -474,18 +470,18 @@ export class ActivitiesService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有活动领队可以添加事件');
+      throw new ForbiddenException("只有活动领队可以添加事件");
     }
 
     if (
       activity.status !== ActivityStatus.IN_PROGRESS &&
       activity.status !== ActivityStatus.PAUSED
     ) {
-      throw new BadRequestException('只有进行中的活动可以添加事件');
+      throw new BadRequestException("只有进行中的活动可以添加事件");
     }
 
     const event = await this.prisma.activityEvent.create({
@@ -500,7 +496,11 @@ export class ActivitiesService {
     return event;
   }
 
-  async getMyLedActivities(leaderId: string, page: number = 1, pageSize: number = 10) {
+  async getMyLedActivities(
+    leaderId: string,
+    page: number = 1,
+    pageSize: number = 10,
+  ) {
     const skip = (page - 1) * pageSize;
     const [items, total] = await Promise.all([
       this.prisma.activity.findMany({
@@ -510,7 +510,7 @@ export class ActivitiesService {
             select: { registrations: { where: { cancelledAt: null } } },
           },
         },
-        orderBy: { startAt: 'desc' },
+        orderBy: { startAt: "desc" },
         skip,
         take: pageSize,
       }),

@@ -1,7 +1,12 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { ActivityStatus, RouteLevel } from '@prisma/client';
-import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  ActivityStatus,
+  RouteLevel,
+  CheckpointType,
+  CheckInStatus,
+} from "@prisma/client";
+import { startOfMonth, endOfMonth, subMonths } from "date-fns";
 
 @Injectable()
 export class StatisticsService {
@@ -23,8 +28,14 @@ export class StatisticsService {
         },
       },
       include: {
+        checkpoints: true,
         registrations: {
           where: { cancelledAt: null },
+          include: {
+            checkIns: {
+              include: { checkpoint: true },
+            },
+          },
         },
       },
     });
@@ -40,14 +51,19 @@ export class StatisticsService {
 
     const totalPresent = activities.reduce((sum, a) => {
       return (
-        sum + a.registrations.filter((r) => r.isPresent).length
+        sum +
+        a.registrations.filter((r) =>
+          r.checkIns.some(
+            (ci) =>
+              ci.checkpoint.type === CheckpointType.START &&
+              ci.status === CheckInStatus.CHECKED_IN,
+          ),
+        ).length
       );
     }, 0);
 
     const totalCompleted = completedActivities.reduce((sum, a) => {
-      return (
-        sum + a.registrations.filter((r) => r.completed).length
-      );
+      return sum + a.registrations.filter((r) => r.completed).length;
     }, 0);
 
     const completionRate =
@@ -60,7 +76,10 @@ export class StatisticsService {
         ? Math.round((totalPresent / totalRegistrations) * 100)
         : 0;
 
-    const routeLevelStats: Record<string, { count: number; participants: number }> = {};
+    const routeLevelStats: Record<
+      string,
+      { count: number; participants: number }
+    > = {};
 
     for (const activity of activities) {
       const level = activity.routeLevel;
@@ -204,10 +223,19 @@ export class StatisticsService {
           activity: {
             select: { status: true },
           },
+          checkIns: {
+            include: { checkpoint: true },
+          },
         },
       });
 
-      const presentCount = registrations.filter((r) => r.isPresent).length;
+      const presentCount = registrations.filter((r) =>
+        r.checkIns.some(
+          (ci) =>
+            ci.checkpoint.type === CheckpointType.START &&
+            ci.status === CheckInStatus.CHECKED_IN,
+        ),
+      ).length;
       const completedCount = registrations.filter(
         (r) => r.completed && r.activity.status === ActivityStatus.COMPLETED,
       ).length;
@@ -238,9 +266,14 @@ export class StatisticsService {
       include: {
         registrations: {
           where: { cancelledAt: null },
+          include: {
+            checkIns: {
+              include: { checkpoint: true },
+            },
+          },
         },
       },
-      orderBy: { startAt: 'desc' },
+      orderBy: { startAt: "desc" },
     });
 
     const totalActivities = activities.length;
@@ -255,13 +288,19 @@ export class StatisticsService {
 
     const totalPresent = activities.reduce(
       (sum, a) =>
-        sum + a.registrations.filter((r) => r.isPresent).length,
+        sum +
+        a.registrations.filter((r) =>
+          r.checkIns.some(
+            (ci) =>
+              ci.checkpoint.type === CheckpointType.START &&
+              ci.status === CheckInStatus.CHECKED_IN,
+          ),
+        ).length,
       0,
     );
 
     const totalCompleted = activities.reduce(
-      (sum, a) =>
-        sum + a.registrations.filter((r) => r.completed).length,
+      (sum, a) => sum + a.registrations.filter((r) => r.completed).length,
       0,
     );
 
@@ -318,7 +357,7 @@ export class StatisticsService {
       totalMileage,
     ] = await Promise.all([
       this.prisma.user.count(),
-      this.prisma.user.count({ where: { role: 'LEADER' } }),
+      this.prisma.user.count({ where: { role: "LEADER" } }),
       this.prisma.activity.count(),
       this.prisma.activity.count({
         where: { status: ActivityStatus.COMPLETED },

@@ -3,36 +3,32 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-} from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateCheckInDto,
   MissCheckInDto,
   UpdateCheckInStatusDto,
-} from './dto/check-in.dto';
+} from "./dto/check-in.dto";
 import {
   CheckInStatus,
   CheckpointType,
   ActivityStatus,
   UserRole,
-} from '@prisma/client';
+} from "@prisma/client";
 
 @Injectable()
 export class CheckInsService {
   constructor(private prisma: PrismaService) {}
 
-  async checkIn(
-    checkpointId: string,
-    riderId: string,
-    dto: CreateCheckInDto,
-  ) {
+  async checkIn(checkpointId: string, riderId: string, dto: CreateCheckInDto) {
     const checkpoint = await this.prisma.checkpoint.findUnique({
       where: { id: checkpointId },
       include: {
         activity: {
           include: {
             checkpoints: {
-              orderBy: { orderIndex: 'asc' },
+              orderBy: { orderIndex: "asc" },
             },
           },
         },
@@ -40,11 +36,11 @@ export class CheckInsService {
     });
 
     if (!checkpoint) {
-      throw new NotFoundException('签到点不存在');
+      throw new NotFoundException("签到点不存在");
     }
 
     if (checkpoint.activity.status !== ActivityStatus.IN_PROGRESS) {
-      throw new BadRequestException('活动未开始或已结束');
+      throw new BadRequestException("活动未开始或已结束");
     }
 
     const registration = await this.prisma.registration.findUnique({
@@ -64,7 +60,7 @@ export class CheckInsService {
     });
 
     if (!registration || registration.cancelledAt) {
-      throw new BadRequestException('您未报名此活动');
+      throw new BadRequestException("您未报名此活动");
     }
 
     const previousCheckpoints = checkpoint.activity.checkpoints.filter(
@@ -80,9 +76,7 @@ export class CheckInsService {
         (prevCheckIn.status !== CheckInStatus.CHECKED_IN &&
           prevCheckIn.status !== CheckInStatus.OPT_OUT)
       ) {
-        throw new BadRequestException(
-          `请先完成前一个签到点：${prevCp.name}`,
-        );
+        throw new BadRequestException(`请先完成前一个签到点：${prevCp.name}`);
       }
     }
 
@@ -109,7 +103,7 @@ export class CheckInsService {
         },
       });
     } else if (checkIn.status === CheckInStatus.CHECKED_IN) {
-      throw new BadRequestException('已在此签到点签到');
+      throw new BadRequestException("已在此签到点签到");
     } else {
       checkIn = await this.prisma.checkIn.update({
         where: { id: checkIn.id },
@@ -129,6 +123,13 @@ export class CheckInsService {
       });
     }
 
+    if (checkpoint.type === CheckpointType.START && !registration.isPresent) {
+      await this.prisma.registration.update({
+        where: { id: registration.id },
+        data: { isPresent: true },
+      });
+    }
+
     return checkIn;
   }
 
@@ -138,7 +139,7 @@ export class CheckInsService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== userId) {
@@ -157,7 +158,7 @@ export class CheckInsService {
             },
           },
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: "asc" },
       });
       return checkIns;
     }
@@ -181,7 +182,7 @@ export class CheckInsService {
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
   }
 
@@ -196,7 +197,7 @@ export class CheckInsService {
     });
 
     if (!registration) {
-      throw new NotFoundException('未报名此活动');
+      throw new NotFoundException("未报名此活动");
     }
 
     return this.prisma.checkIn.findMany({
@@ -216,7 +217,7 @@ export class CheckInsService {
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
   }
 
@@ -230,7 +231,7 @@ export class CheckInsService {
     });
 
     if (!checkIn) {
-      throw new NotFoundException('签到记录不存在');
+      throw new NotFoundException("签到记录不存在");
     }
 
     const activity = await this.prisma.activity.findUnique({
@@ -238,11 +239,11 @@ export class CheckInsService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有领队可以修改签到状态');
+      throw new ForbiddenException("只有领队可以修改签到状态");
     }
 
     const updateData: any = {
@@ -259,17 +260,30 @@ export class CheckInsService {
       updateData.checkedInAt = new Date();
     }
 
-    return this.prisma.checkIn.update({
+    const updatedCheckIn = await this.prisma.checkIn.update({
       where: { id: checkInId },
       data: updateData,
+      include: {
+        checkpoint: true,
+        registration: true,
+      },
     });
+
+    if (
+      updatedCheckIn.checkpoint.type === CheckpointType.START &&
+      dto.status === CheckInStatus.CHECKED_IN &&
+      !updatedCheckIn.registration.isPresent
+    ) {
+      await this.prisma.registration.update({
+        where: { id: updatedCheckIn.registrationId },
+        data: { isPresent: true },
+      });
+    }
+
+    return updatedCheckIn;
   }
 
-  async markMissed(
-    checkInId: string,
-    leaderId: string,
-    dto: MissCheckInDto,
-  ) {
+  async markMissed(checkInId: string, leaderId: string, dto: MissCheckInDto) {
     return this.updateStatus(checkInId, leaderId, {
       status: CheckInStatus.MISSED,
       reason: dto.reason,
@@ -283,11 +297,11 @@ export class CheckInsService {
     });
 
     if (!checkpoint) {
-      throw new NotFoundException('签到点不存在');
+      throw new NotFoundException("签到点不存在");
     }
 
     if (checkpoint.activity.leaderId !== userId) {
-      throw new ForbiddenException('只有领队可以查看签到点状态');
+      throw new ForbiddenException("只有领队可以查看签到点状态");
     }
 
     const checkIns = await this.prisma.checkIn.findMany({
@@ -337,7 +351,7 @@ export class CheckInsService {
       where: { id: activityId },
       include: {
         checkpoints: {
-          orderBy: { orderIndex: 'asc' },
+          orderBy: { orderIndex: "asc" },
         },
         registrations: {
           where: { cancelledAt: null },
@@ -346,11 +360,11 @@ export class CheckInsService {
     });
 
     if (!activity) {
-      throw new NotFoundException('活动不存在');
+      throw new NotFoundException("活动不存在");
     }
 
     if (activity.leaderId !== leaderId) {
-      throw new ForbiddenException('只有领队可以批量创建签到');
+      throw new ForbiddenException("只有领队可以批量创建签到");
     }
 
     const checkInsToCreate: any[] = [];
